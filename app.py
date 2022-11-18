@@ -39,19 +39,5 @@ def hello():
     except:
         return "error"
 
-# @app.route('/getDebug', methods=["GET","POST"])
-# def getDebug():
-#     file = request.form["fileName"]
-#     command = "python3 shell.py " + file
-#     result = subprocess.run(command.split(' '), stdout=subprocess.PIPE, text=True)
-#     # print(result.stdout)
-
-#     return result.stdout
-#     # return '''
-#     # <h1>이건 h1 제목</h1>
-#     # <p>이건 p 본문 </p>
-#     # <a href="https://flask.palletsprojects.com">Flask 홈페이지 바로가기</a>
-#     # '''
-
 if __name__ == '__main__':
     app.run(debug=True, host=host_addr, port=host_port)

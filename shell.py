@@ -1,5 +1,12 @@
 def recvResult(p):
-    return str(p.recvuntil(b"(gdb)"), 'utf-8')
+    ret = str(p.recvuntil(b"(gdb)"), 'utf-8')
+    # print(ret)
+    return ret
+
+def recvResultNoPrint(p):
+    ret = str(p.recvuntil(b"(gdb)"), 'utf-8')
+    # print(ret)
+    return ret
 
 def comment_remover(text):
     def replacer(match):
@@ -266,6 +273,8 @@ def getFuncBySourceCode(file):
             continue
         if not ("(" in line):
             continue
+        if "#pragma" in line:
+            continue
 
         exType = line.split('\t')[1]
         name = exType.split('(')[0]
@@ -277,6 +286,10 @@ def getFuncBySourceCode(file):
     return funcList
 
 def sendOrder(p, order:str):
+    p.sendline(bytes(order, 'utf-8'))
+    # print("send " + order)
+
+def sendOrderNoPrint(p, order:str):
     p.sendline(bytes(order, 'utf-8'))
     # print("send " + order)
 
@@ -386,9 +399,15 @@ def countNextline(s:str):
 
     return count
 
-def getFrame(p, func):
-    sendOrder(p, "info frame")
-    recv = recvResult(p)
+def getFrame(p, func, recursive = False):
+    if recursive == False:
+        sendOrder(p, "info frame")
+    recv = recvResultNoPrint(p)
+    print(recv)
+
+    # if "(gdb)" in recv:
+    #     recv = recvResultNoPrint(p)
+    #     print(recv)
 
     # 현재 프레임 찾기
     second = recv.split('\n')[1]
@@ -396,11 +415,13 @@ def getFrame(p, func):
         if s in second:
             return s
 
-    return "ERROR"
+    return getFrame(p, func, True)
+    # return "ERROR"
 
 def getArgs(p):
     sendOrder(p, "info frame")
-    recv = recvResult(p)
+    recv = recvResultNoPrint(p)
+    print(recv)
 
     # 인자들 받아오기
     argStart = recv.find(", args: ") + 8
@@ -463,6 +484,72 @@ def breakAndRun(p):
 
     return last
 
+def countGetInput(next:str):
+    count = 0
+    for i in range(1, len(next) - 1):
+        if next[i] == '%':
+            if next[i + 1] == '%' or next[i - 1] == '%':
+                continue
+            count += 1
+    
+    return count
+
+def getInputByCount(inputs, count:int):
+    output = ""
+    accum = 0
+    while(True):
+        if accum == count:
+            break
+
+        line = inputs[0].split(" ")
+        if accum + len(line) <= count:
+            output += inputs[0] + "\n"
+            accum += len(line)
+            inputs = inputs[1:]
+            continue
+
+        small_add = count - accum
+        for i in range(small_add):
+            output += line[i] + " "
+            accum += 1
+        output = output[:-1]
+
+        # recover = ""
+        # for i in range(small_add, len(line)):
+        #     recover += line[i] + " "            
+        # inputs[0] = recover[:-1]
+
+    return output
+
+
+def getInputByCountInputsUpdate(inputs, count:int):
+    output = ""
+    accum = 0
+    while(True):
+        if accum == count:
+            break
+
+        line = inputs[0].split(" ")
+        if accum + len(line) <= count:
+            output += inputs[0] + "\n"
+            accum += len(line)
+            inputs = inputs[1:]
+            continue
+
+        small_add = count - accum
+        for i in range(small_add):
+            output += line[i] + " "
+            accum += 1
+        output = output[:-1]
+
+        recover = ""
+        for i in range(small_add, len(line)):
+            recover += line[i] + " "            
+        inputs[0] = recover[:-1]
+
+    return inputs
+
+
 
 import json
 from pwn import *
@@ -475,20 +562,42 @@ import sys
 # name = b'bubbleSort'
 # name = b'pointerArray'
 # name = b'graphSearch'
+# name = b'loop'
+name = b'searchTree1'
 
 name = bytes(sys.argv[1], "UTF-8")
 
 print("input name: " + str(name))
 file = str(name, 'utf-8') + ".c"
-inputString = ["5 7 1",
-"1 2",
-"1 4",
-"5 1",
-"3 5",
-"4 3",
-"3 1",
-"2 3",
-]
+# inputString = ["5 7 1",
+# "1 2",
+# "1 4",
+# "5 1",
+# "3 5",
+# "4 3",
+# "3 1",
+# "2 3",
+# ]
+# print(inputString)
+# print(type(inputString))
+
+inputString = '''i 3
+i 2
+i 7
+s 4
+i 6
+p
+i 5
+s 6
+q'''
+
+inputString = sys.argv[2].split("\n")
+# inputString = inputString.split("\n")
+
+print(inputString)
+# print(type(inputString))
+# exit()
+
 inputCount = 0
 
 makeTempFile(file)
@@ -539,7 +648,7 @@ forJson = {}
 # 디버깅용
 interactivalbe = False
 
-# 
+
 currentFunc = "main"
 # 숫자로 정렬을 위해 "functions" 대신 -1 사용
 forJson[-1] = func
@@ -548,17 +657,41 @@ steps = 0
 dead = False
 while(True):
     # 기본 함수들이면 n을 보내서 스킵하게 한다.
-    if "scanf" in source or "printf" in source or "exit" in source or "malloc" in source:
+    if ("scanf" in source or "printf" in source 
+    or "exit" in source or "malloc" in source
+    or "getchar" in source  or "gets" in source
+    or "free" in source):
         sendOrder(p, "n")
+        print(source)
+        
+        if not inputString:
+            inputString = ['']
+
+        if "gets" in source:
+            # p.interactive()
+            print("input: " + inputString[inputCount])
+            sendOrder(p, inputString[inputCount])
+            inputString = inputString[1:]
         
         if "scanf" in source:
-            # p.interactive()
-            sendOrder(p, inputString[inputCount])
-            inputCount += 1
+            count = countGetInput(source)
+            inputs = getInputByCount(inputString, count)
+            inputString = getInputByCountInputsUpdate(inputString, count)
+            inputs = inputs.replace("\n","")
+            print("input: " + inputs)
+            sendOrder(p, inputs)
+
+        if "= getchar" in source:
+            inputs = getInputByCount(inputString, 1)
+            # inputString = getInputByCountInputsUpdate(inputString, countGetInput(source))
+            print("input: " + inputs)
+            sendOrder(p, inputs)
+
     else:
         sendOrder(p, "s")
 
     source = recvResult(p)
+    # source = p.recvall()
     source = rmColor(source)
 
     # watch 사용 안함
@@ -568,9 +701,12 @@ while(True):
     
     print(source)
 
+    if "order" in source:
+        print("asd")
+
     # 디버깅용
-    # if interactivalbe == True:
-    #     p.interactive()
+    if interactivalbe == True:
+        p.interactive()
 
     # 현재 함수 얻기
     currentFunc = getFrame(p, func)
@@ -651,7 +787,7 @@ while(True):
     if dead == True:
         break
 
-    if "return" in source:
+    if "return (0)" in source:
         # print("end func")
         if currentFunc == "main":
             # 다음 턴에 사망하게 하자
